@@ -21,7 +21,7 @@ import net.yapbam.util.Portable;
 public class Updater {
 	private static final String ZIP_FILE = "update.zip"; //$NON-NLS-1$
 	private static final String LOG_FILE = "updater.log"; //$NON-NLS-1$
-	private static final String OLD_SUFFIX = ".old"; //$NON-NLS-1$
+	private static final String TO_BE_DELETED_DIR = "toBeDeleted"; //$NON-NLS-1$
 	private static final int BUFFER_SIZE = 10240;
 
 	private Updater() {
@@ -59,6 +59,8 @@ public class Updater {
 					Messages.getString("Update.Install.title"),JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
 		}
 		FileUtils.deleteDirectory(Portable.getUpdateFileDirectory());
+		// Best effort cleanup of the toBeDeleted directory (may fail if files are still locked)
+		FileUtils.deleteDirectory(new File(installDirectory, TO_BE_DELETED_DIR));
 	}
 
 	/** Processes a single zip entry.
@@ -81,26 +83,66 @@ public class Updater {
 				log.log("Replacing directory with file: " + target); //$NON-NLS-1$
 				FileUtils.deleteDirectory(target);
 			}
-			// If the target file is locked (e.g. Yapbam.exe still running on Windows),
-			// try to rename it to <name>.old so the new file can be written.
-			// Windows allows renaming a running executable, but not overwriting it.
-			if (target.exists() && !target.canWrite()) {
-				File old = new File(target.getParentFile(), target.getName()+OLD_SUFFIX);
-				log.log("File is locked, renaming " + target + " to " + old); //$NON-NLS-1$ //$NON-NLS-2$
-				if (old.exists()) {
-					old.delete();
+			log.log("Extracting: " + target); //$NON-NLS-1$
+			try {
+				extractFile(zis, target);
+			} catch (IOException e) {
+				// The file may be locked (for instance, Windows allows moving a running executable, but not overwriting it).
+				// Move the locked file to a toBeDeleted directory, then retry.
+				if (!target.exists()) {
+					throw e;
 				}
-				if (!target.renameTo(old)) {
-					throw new IOException("Unable to rename "+target+" to "+old); //$NON-NLS-1$ //$NON-NLS-2$
+				File moved = moveLockedFile(target, installDirectory, log);
+				if (moved == null) {
+					throw new IOException("Unable to move locked file " + target, e); //$NON-NLS-1$
+				}
+				try {
+					extractFile(zis, target);
+				} catch (IOException e2) {
+					// The retry failed. Restore the original file to avoid leaving a broken install.
+					log.log("Retry failed, restoring original file", e2); //$NON-NLS-1$
+					target.delete();
+					if (!moved.renameTo(target)) {
+						log.log("Unable to restore " + moved + " to " + target); //$NON-NLS-1$ //$NON-NLS-2$
+					}
+					throw e2;
 				}
 			}
-			log.log("Extracting: " + target); //$NON-NLS-1$
-			extractFile(zis, target);
 		}
 		if (entry.getName().endsWith(".sh")) {
 			log.log("Setting executable: " + target); //$NON-NLS-1$
 			target.setExecutable(true); //$NON-NLS-1$
 		}
+	}
+
+	/** Moves a locked file to the {@code toBeDeleted} directory.
+	 * <br>If a file with the same name already exists in {@code toBeDeleted} and cannot be deleted,
+	 * a suffix ({@code -1}, {@code -2}, ...) is appended to the name until an available name is found.
+	 * @param target The file to move.
+	 * @param installDirectory The installation directory (where {@code toBeDeleted} is created).
+	 * @param log The logger.
+	 * @return The destination file, or null if the move failed.
+	 */
+	private static File moveLockedFile(File target, File installDirectory, Log log) {
+		File toBeDeleted = new File(installDirectory, TO_BE_DELETED_DIR);
+		toBeDeleted.mkdirs();
+		String baseName = target.getName();
+		File moved = new File(toBeDeleted, baseName);
+		int suffix = 0;
+		while (moved.exists()) {
+			if (moved.delete()) {
+				break;
+			}
+			log.log("Unable to delete " + moved + ", trying another name"); //$NON-NLS-1$ //$NON-NLS-2$
+			suffix++;
+			moved = new File(toBeDeleted, baseName + "-" + suffix); //$NON-NLS-1$
+		}
+		log.log("File is locked, moving " + target + " to " + moved); //$NON-NLS-1$ //$NON-NLS-2$
+		if (target.renameTo(moved)) {
+			return moved;
+		}
+		log.log("Move failed: " + target + " to " + moved); //$NON-NLS-1$ //$NON-NLS-2$
+		return null;
 	}
 
 	/** Extracts a single file from the zip stream to the target file.
