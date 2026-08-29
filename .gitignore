@@ -1,0 +1,9 @@
+/target/
+
+# Eclipse files
+.classpath
+.project
+.settings/
+
+# VS Code files
+.vscode/
