@@ -6,6 +6,10 @@ Basically, it extracts a zip file (`update.zip`) into the application's launch
 directory, then cleans up the temporary update folder. It is intended to be
 launched by the Yapbam desktop application once an update has been downloaded.
 
+## Requirements
+
+- Java 8 or higher
+
 ## How it works
 
 The `Updater` main class (`net.yapbam.updater.Updater`):
@@ -35,11 +39,12 @@ duplicated from the main Yapbam project.
 The updater is launched by `MainFrame` in Yapbam via a `ProcessBuilder`, and
 the launching JVM consumes the child's **stderr** in a blocking `readLine()`
 loop in order to stay alive until the update completes (see `MainFrame`'s
-`windowClosing` listener). **stdout is not consumed at all.**
+`windowClosing` listener). **stdout is not consumed at all.**  
 
 Consequences:
-- Writing to **stdout** can fill the OS pipe buffer (~4 KB on Windows) and
-  **deadlock** the updater process forever.
+- Writing to **stdout** can fill the OS pipe buffer (~4 KB on Windows) and **deadlock** the updater process forever.  
+  Keep in mind that the updater may be used by very old versions of Yapbam, so fixing the issue in Yapbam
+  will not remove the problem for those older versions.
 - Writing to **stderr** is "tolerated" today, but any substantial output would
   keep the parent JVM alive longer than necessary and is not the intended
   communication channel.

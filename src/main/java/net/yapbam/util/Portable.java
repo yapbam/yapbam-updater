@@ -12,7 +12,7 @@ import com.fathzer.soft.ajlib.utilities.FileUtils;
  * <BR>License : GPL v3
  */   
 public final class Portable {
-	//TODO This class is duplicated from Yapbam. We probably should make it a unique common class
+	//TODO This class was duplicated from Yapbam before Yapbam class refactoring. Maybe we should make it a unique common class
 	private static final String APPLICATION_NAME = "yapbam"; 
 	private static final boolean IS_PORTABLE;
 	private static final File DATA_DIRECTORY;
